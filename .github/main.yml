@@ -1,0 +1,54 @@
+name: Python Tests
+
+# Запуск при push в основную ветку и при создании pull request
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Run pytest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -v
+
+  notify:
+    name: Notify results
+    needs: test
+    if: always()            # уведомлять и при успехе, и при падении
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write summary and send Slack notification
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          STATUS: ${{ needs.test.result }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          echo "## Итог тестов: $STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "Репозиторий: $REPO" >> "$GITHUB_STEP_SUMMARY"
+          echo "Запуск: $RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+          # Если секрет не задан - пропускаем Slack, не ломая прогон
+          if [ -z "$SLACK_WEBHOOK" ]; then
+            echo "SLACK_WEBHOOK не задан - отправка в Slack пропущена."
+            exit 0
+          fi
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"Тесты $REPO: $STATUS. $RUN_URL\"}" \
+            "$SLACK_WEBHOOK"
